@@ -120,7 +120,7 @@ def get_chunks_by_doc(
         return chunks
 
     for i in range(len(results["ids"])):
-        meta = results["metadatas"][i]
+        meta = results["metadatas"][i] or {}
         chunks.append(
             {
                 "chunk_id": results["ids"][i],
@@ -128,29 +128,47 @@ def get_chunks_by_doc(
                 "text": results["documents"][i],
                 "page": meta.get("page"),
                 "heading": meta.get("heading"),
+                "category": meta.get("category"),
+                "severity": meta.get("severity"),
             }
         )
     return chunks
 
 
 def query_similar(
-    doc_id: str,
-    query_vector: List[float],
+    doc_id: Optional[str] = None,
+    query_vector: Optional[List[float]] = None,
     top_k: int = 8,
     *,
+    doc_ids: Optional[List[str]] = None,
+    per_doc_limit: Optional[int] = None,
     db_path: Optional[str] = None,
 ) -> List[dict]:
     """
-    Queries for similar chunks, STRICTLY scoped to the given doc_id.
-    Returns chunks with a 'distance' field (cosine distance: lower = more similar).
-    Also adds a 'similarity' field (1 - distance) for convenience.
+    Queries for similar chunks.
+
+    Prefer `doc_ids` for multi-document retrieval. Falls back to a single `doc_id`.
+    When `per_doc_limit` is set, results are balanced across documents.
     """
+    if query_vector is None:
+        raise ValueError("query_vector is required")
+
     collection = _get_collection(db_path)
+    ids = [d for d in (doc_ids or ([doc_id] if doc_id else [])) if d]
+    where = None
+    if len(ids) == 1:
+        where = {"doc_id": ids[0]}
+    elif len(ids) > 1:
+        where = {"doc_id": {"$in": ids}}
+
+    fetch_k = top_k
+    if per_doc_limit and ids:
+        fetch_k = max(top_k, per_doc_limit * len(ids) * 2)
 
     results = collection.query(
         query_embeddings=[query_vector],
-        n_results=top_k,
-        where={"doc_id": doc_id},
+        n_results=fetch_k,
+        where=where,
         include=["metadatas", "documents", "distances"],
     )
 
@@ -159,7 +177,7 @@ def query_similar(
         return chunks
 
     for i in range(len(results["ids"][0])):
-        meta = results["metadatas"][0][i]
+        meta = results["metadatas"][0][i] or {}
         distance = results["distances"][0][i]
         chunks.append(
             {
@@ -168,11 +186,51 @@ def query_similar(
                 "text": results["documents"][0][i],
                 "page": meta.get("page"),
                 "heading": meta.get("heading"),
+                "category": meta.get("category"),
+                "severity": meta.get("severity"),
                 "distance": distance,
                 "similarity": round(1.0 - distance, 4),
             }
         )
-    return chunks
+
+    if per_doc_limit and ids:
+        balanced: List[dict] = []
+        counts: Dict[str, int] = {d: 0 for d in ids}
+        for chunk in chunks:
+            did = chunk.get("doc_id")
+            if did in counts and counts[did] < per_doc_limit:
+                balanced.append(chunk)
+                counts[did] += 1
+            if len(balanced) >= top_k:
+                break
+        return balanced
+
+    return chunks[:top_k]
+
+
+def update_chunk_metadata(
+    chunk_id: str,
+    metadata: Dict[str, Any],
+    *,
+    db_path: Optional[str] = None,
+) -> None:
+    """Merge classification metadata into an existing chunk."""
+    collection = _get_collection(db_path)
+    existing = collection.get(ids=[chunk_id], include=["metadatas"])
+    if not existing or not existing["ids"]:
+        return
+    current = existing["metadatas"][0] or {}
+    merged = {**current, **{k: v for k, v in metadata.items() if v is not None}}
+    # Chroma metadata values must be scalar
+    clean = {}
+    for key, value in merged.items():
+        if isinstance(value, (str, int, float, bool)):
+            clean[key] = value
+        elif value is None:
+            continue
+        else:
+            clean[key] = str(value)
+    collection.update(ids=[chunk_id], metadatas=[clean])
 
 
 def delete_document(doc_id: str, *, db_path: Optional[str] = None) -> int:

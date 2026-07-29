@@ -16,13 +16,19 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
+from app.db.session import bootstrap_schema
 
-app = FastAPI(title="ClauseGuard API", version="0.2.0")
+app = FastAPI(title="ClauseGuard API", version="0.3.0")
 
 # Configure CORS for local development
+frontend_urls = os.environ.get(
+    "FRONTEND_URLS",
+    "http://localhost:3000",
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[url.strip() for url in frontend_urls],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +41,8 @@ def validate_config():
     Validates required environment variables at startup.
     Logs warnings for missing keys instead of silently failing per-request.
     """
+    bootstrap_schema()
+
     groq_key = os.environ.get("GROQ_API_KEY", "").strip().strip('"').strip("'")
     if not groq_key:
         logger.warning(
@@ -46,7 +54,7 @@ def validate_config():
         masked = groq_key[:8] + "..." + groq_key[-4:] if len(groq_key) > 12 else "***"
         logger.info("✅ GROQ_API_KEY loaded (%s)", masked)
 
-    logger.info("ClauseGuard API v0.2.0 ready.")
+    logger.info("ClauseGuard API v0.3.0 ready.")
 
 
 @app.get("/health")
@@ -57,7 +65,7 @@ def health_check():
     groq_configured = bool(os.environ.get("GROQ_API_KEY", "").strip())
     return {
         "status": "ok",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "llm_configured": groq_configured,
     }
 
