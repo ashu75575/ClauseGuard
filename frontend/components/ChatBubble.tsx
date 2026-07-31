@@ -1,4 +1,14 @@
+"use client";
+
+import { useState } from "react";
+import { CheckIcon, CopyIcon, ArrowUpRightIcon } from "lucide-react";
 import type { Citation } from "@/lib/apiClient";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 export interface ChatMessage {
   id: string;
@@ -22,83 +32,117 @@ export function ChatBubble({
   onCitation: (chunkId: string) => void;
   onFollowUp?: (question: string) => void;
 }) {
+  const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
   const needsClarification = message.responseStatus === "needs_clarification";
   const unavailable = message.noAnswer || message.responseStatus === "not_found";
 
+  function handleCopy() {
+    void navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   if (isUser) {
     return (
       <div className="flex w-full justify-end">
-        <div className="max-w-[90%] border-2 border-violet-300/25 bg-violet-600 px-5 py-4 text-base leading-7 text-white shadow-[4px_4px_0_#312e81] sm:max-w-[82%]">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground">
           <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
       </div>
     );
   }
 
+  const label = needsClarification
+    ? "Clarification needed"
+    : message.answerType === "document_summary"
+      ? "Document summary"
+      : message.answerType === "risk_analysis"
+        ? "Risk analysis"
+        : "Grounded answer";
+
   return (
-    <div className="flex w-full items-start gap-3 sm:gap-4">
-      <div className="grid h-10 w-10 shrink-0 place-items-center border border-violet-300/30 bg-violet-600 font-mono text-xs font-black text-white shadow-[3px_3px_0_#312e81]">
-        CG
-      </div>
-      <div className="min-w-0 flex-1 border-2 border-white/[0.1] bg-[#151517] p-5 sm:p-6">
-        <p className="mb-4 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-violet-400">
-          {needsClarification
-            ? "ClauseGuard // clarification"
-            : message.answerType === "document_summary"
-              ? "ClauseGuard // document summary"
-              : message.answerType === "risk_analysis"
-                ? "ClauseGuard // risk analysis"
-                : "ClauseGuard agent"}
-        </p>
-        <div
-          className={`text-base leading-8 sm:text-[17px] ${
-            unavailable
-              ? "border-l-4 border-amber-300 bg-amber-300/[0.07] px-4 py-3 text-amber-100"
-              : needsClarification
-                ? "border-l-4 border-violet-400 bg-violet-400/[0.07] px-4 py-3 text-violet-100"
-              : "text-zinc-300"
-          }`}
-        >
-          <p className="whitespace-pre-wrap">{message.content}</p>
+    <div className="flex w-full items-start gap-3">
+      <Avatar size="sm" className="mt-1">
+        <AvatarFallback className="bg-primary text-primary-foreground text-[10px]">
+          CG
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1 space-y-3 rounded-2xl rounded-tl-md border bg-card p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant="secondary">{label}</Badge>
+          <Button type="button" variant="ghost" size="xs" onClick={handleCopy}>
+            {copied ? <CheckIcon className="text-emerald-500" /> : <CopyIcon />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
         </div>
+
+        {unavailable || needsClarification ? (
+          <Alert>
+            <AlertDescription>
+              <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">
+            {message.content}
+          </p>
+        )}
+
         {message.citations && message.citations.length > 0 && (
-          <div className="mt-5 flex flex-wrap gap-2.5">
-            {message.citations.map((citation, index) => {
-              const available = availableChunks.has(citation.chunk_id);
-              return (
-                <button
-                  key={`${citation.chunk_id}-${index}`}
-                  type="button"
-                  disabled={!available}
-                  onClick={() => onCitation(citation.chunk_id)}
-                  className="min-h-10 border border-white/[0.14] bg-[#19191c] px-3.5 py-2 font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-300 transition hover:border-violet-400/50 hover:bg-violet-400/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  title={
-                    available
-                      ? `View cited clause on page ${citation.page}`
-                      : "Cited clause is unavailable in this report"
-                  }
-                >
-                  {available
-                    ? `[${index + 1}] Page ${citation.page} ↗`
-                    : `Page ${citation.page} · unavailable`}
-                </button>
-              );
-            })}
+          <div className="space-y-2">
+            <Separator />
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Sources
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {message.citations.map((citation, index) => {
+                const available = availableChunks.has(citation.chunk_id);
+                return (
+                  <Button
+                    key={`${citation.chunk_id}-${index}`}
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    disabled={!available}
+                    onClick={() => onCitation(citation.chunk_id)}
+                    title={
+                      available
+                        ? `View cited clause on page ${citation.page}`
+                        : "Cited clause is unavailable in this report"
+                    }
+                  >
+                    <ArrowUpRightIcon />
+                    {available
+                      ? `[${index + 1}] Page ${citation.page}`
+                      : `Page ${citation.page} · unavailable`}
+                  </Button>
+                );
+              })}
+            </div>
           </div>
         )}
+
         {message.followUps && message.followUps.length > 0 && onFollowUp && (
-          <div className="mt-5 flex flex-wrap gap-2.5">
-            {message.followUps.map((question) => (
-              <button
-                key={question}
-                type="button"
-                onClick={() => onFollowUp(question)}
-                className="min-h-11 border border-violet-400/25 bg-violet-400/[0.07] px-4 py-2.5 text-left text-sm leading-5 text-violet-100 hover:bg-violet-400/15"
-              >
-                {question}
-              </button>
-            ))}
+          <div className="space-y-2">
+            <Separator />
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Suggested follow-ups
+            </p>
+            <div className="flex flex-col gap-2">
+              {message.followUps.map((question) => (
+                <Button
+                  key={question}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className={cn("h-auto justify-start whitespace-normal px-3 py-2 text-left")}
+                  onClick={() => onFollowUp(question)}
+                >
+                  {question}
+                </Button>
+              ))}
+            </div>
           </div>
         )}
       </div>

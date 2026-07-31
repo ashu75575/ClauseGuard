@@ -46,6 +46,33 @@ export interface Obligation {
   source_chunk_ids: string[];
 }
 
+export interface CategoryBreakdownItem {
+  category: string;
+  count: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export interface PartyBreakdownItem {
+  party: string;
+  count: number;
+}
+
+export interface DashboardStats {
+  flag_count: number;
+  priority_count: number;
+  obligation_count: number;
+  playbook_count: number;
+  section_count: number;
+  chunk_count: number;
+  avg_confidence?: number | null;
+  severity_summary: Record<Severity, number>;
+  obligation_status: Record<ObligationStatus, number>;
+  category_breakdown: CategoryBreakdownItem[];
+  parties: PartyBreakdownItem[];
+}
+
 export interface Report {
   doc_id: string;
   flags: Clause[];
@@ -57,6 +84,13 @@ export interface Report {
   suggested_questions?: string[];
   analyzed_at?: string | null;
   model?: string | null;
+  filename?: string | null;
+  content_type?: string | null;
+  section_count?: number;
+  chunk_count?: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  dashboard?: DashboardStats | null;
   disclaimer?: string;
 }
 
@@ -252,6 +286,12 @@ export function listDocuments(): Promise<DocumentSummary[]> {
 
 export function getChatHistory(docId: string): Promise<ChatMessage[]> {
   return request<ChatMessage[]>(`/chat/${encodeURIComponent(docId)}`);
+}
+
+export function clearChatHistory(docId: string): Promise<{ doc_id: string; deleted_count: number }> {
+  return request<{ doc_id: string; deleted_count: number }>(`/chat/${encodeURIComponent(docId)}`, {
+    method: "DELETE",
+  });
 }
 
 export function askQuestion(docId: string, question: string): Promise<AskResponse> {

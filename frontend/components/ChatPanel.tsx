@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { askQuestion, getApiErrorMessage } from "@/lib/apiClient";
+import { askQuestion, clearChatHistory, getApiErrorMessage } from "@/lib/apiClient";
 import { ChatBubble, type ChatMessage } from "./ChatBubble";
 
 const examples = [
@@ -26,6 +26,7 @@ export function ChatPanel({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failedQuestion, setFailedQuestion] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageCounter = useRef(0);
@@ -33,6 +34,20 @@ export function ChatPanel({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, sending]);
+
+  async function handleClearChat() {
+    if (sending || clearing || messages.length === 0) return;
+    setClearing(true);
+    try {
+      await clearChatHistory(docId);
+      setMessages([]);
+      setError(null);
+    } catch (caught) {
+      setError(getApiErrorMessage(caught));
+    } finally {
+      setClearing(false);
+    }
+  }
 
   async function send(value: string) {
     const trimmed = value.trim();
@@ -89,21 +104,37 @@ export function ChatPanel({
               <h2 className="font-mono text-sm font-black uppercase tracking-[0.12em] text-zinc-100">Document agent</h2>
               <span className="h-1.5 w-1.5 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.8)]" />
             </div>
-            <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-zinc-500">Grounded in this contract</p>
+            <p className="mt-0.5 font-mono text-[11px] uppercase tracking-wider text-zinc-500">Grounded in this contract</p>
           </div>
         </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-white/[0.12] p-2 text-zinc-500 hover:border-violet-400/40 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 lg:hidden"
-            aria-label="Close document assistant"
-          >
-            <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" aria-hidden="true">
-              <path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearChat}
+              disabled={clearing || sending}
+              className="flex items-center gap-1.5 border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-rose-300 hover:border-rose-400 hover:bg-rose-500/20 disabled:opacity-40"
+              title="Clear all chat history"
+            >
+              <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 6h12M8 6V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2m2 0v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6h12z" />
+              </svg>
+              <span>{clearing ? "Clearing..." : "Clear Chat"}</span>
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="border border-white/[0.12] p-2 text-zinc-500 hover:border-violet-400/40 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 lg:hidden"
+              aria-label="Close document assistant"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" aria-hidden="true">
+                <path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
@@ -207,3 +238,4 @@ export function ChatPanel({
     </section>
   );
 }
+

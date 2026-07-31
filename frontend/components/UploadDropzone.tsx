@@ -1,7 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { UploadIcon } from "lucide-react";
 import { ShineBorder } from "@/components/ui/shine-border";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface UploadDropzoneProps {
   onFile: (file: File) => void;
@@ -30,11 +34,11 @@ export function UploadDropzone({ onFile, disabled, error }: UploadDropzoneProps)
   return (
     <div>
       <div
-        className={`relative overflow-hidden rounded-xl border border-dashed p-8 text-center transition-all sm:p-11 ${
-          dragging
-            ? "border-violet-400 bg-violet-500/[0.08]"
-            : "border-white/[0.13] bg-[#151517] hover:border-white/25 hover:bg-[#18181b]"
-        } ${disabled ? "pointer-events-none opacity-55" : ""}`}
+        className={cn(
+          "relative overflow-hidden rounded-xl border border-dashed p-8 text-center transition-all sm:p-11",
+          dragging ? "border-primary bg-primary/5" : "border-border bg-muted/40 hover:bg-muted/70",
+          disabled && "pointer-events-none opacity-55",
+        )}
         onDragEnter={(event) => {
           event.preventDefault();
           setDragging(true);
@@ -70,25 +74,26 @@ export function UploadDropzone({ onFile, disabled, error }: UploadDropzoneProps)
           }}
           aria-label="Choose a PDF or DOCX contract"
         />
-        <div className="mx-auto mb-5 grid h-12 w-12 place-items-center rounded-xl border border-white/10 bg-[#202024] text-zinc-300">
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-            <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+        <div className="mx-auto mb-5 grid size-12 place-items-center rounded-xl border bg-background text-muted-foreground">
+          <UploadIcon className="size-5" />
         </div>
-        <p className="text-sm font-medium text-zinc-100">Drop your contract here</p>
-        <p className="mt-2 text-xs leading-5 text-zinc-500">PDF or DOCX · processed securely for review</p>
-        <button
+        <p className="text-sm font-medium">Drop your contract here</p>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+          PDF or DOCX · processed securely for review
+        </p>
+        <Button
           type="button"
+          variant="outline"
+          className="mt-5"
           onClick={() => inputRef.current?.click()}
-          className="mt-5 rounded-xl bg-white px-4 py-2.5 text-xs font-semibold text-zinc-950 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
         >
-          Upload document
-        </button>
+          Browse files
+        </Button>
       </div>
       {error && (
-        <p className="mt-3 text-sm text-rose-300" role="alert">
-          {error}
-        </p>
+        <Alert variant="destructive" className="mt-3">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
     </div>
   );
