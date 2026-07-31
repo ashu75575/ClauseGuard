@@ -71,6 +71,42 @@ class ObligationOut(BaseModel):
     source_chunk_ids: List[str] = Field(default_factory=list)
 
 
+class CategoryBreakdownItem(BaseModel):
+    category: str
+    count: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+
+
+class PartyBreakdownItem(BaseModel):
+    party: str
+    count: int = 0
+
+
+class DashboardStats(BaseModel):
+    flag_count: int = 0
+    priority_count: int = 0
+    obligation_count: int = 0
+    playbook_count: int = 0
+    section_count: int = 0
+    chunk_count: int = 0
+    avg_confidence: Optional[float] = None
+    severity_summary: Dict[str, int] = Field(
+        default_factory=lambda: {"high": 0, "medium": 0, "low": 0}
+    )
+    obligation_status: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "unconfirmed": 0,
+            "confirmed": 0,
+            "completed": 0,
+            "dismissed": 0,
+        }
+    )
+    category_breakdown: List[CategoryBreakdownItem] = Field(default_factory=list)
+    parties: List[PartyBreakdownItem] = Field(default_factory=list)
+
+
 class StructuredReport(BaseModel):
     doc_id: str
     flags: List[ClauseFlag] = Field(default_factory=list)
@@ -82,6 +118,13 @@ class StructuredReport(BaseModel):
     suggested_questions: List[str] = Field(default_factory=list)
     analyzed_at: Optional[str] = None
     model: Optional[str] = None
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+    section_count: int = 0
+    chunk_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    dashboard: Optional[DashboardStats] = None
     disclaimer: str = (
         "AI-assisted legal review for information only. Not legal advice. "
         "Verify all findings against the source document before relying on them."

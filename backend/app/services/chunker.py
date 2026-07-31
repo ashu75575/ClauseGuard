@@ -65,6 +65,8 @@ def _is_continuation(sentence: str) -> bool:
     return any(lower.startswith(p) for p in CONTINUATION_PATTERNS)
 
 
+import re
+
 def _sentence_aware_split(
     text: str,
     doc_id: str,
@@ -76,11 +78,12 @@ def _sentence_aware_split(
 ) -> List[Chunk]:
     """
     Splits text at sentence boundaries, respecting max_words and merging
-    continuation sentences with their preceding chunk.
+    continuation sentences with their preceding chunk. Handles word-level sliding window
+    if a single sentence exceeds max_words.
 
     Returns a list of Chunk objects with sequential chunk_index values.
     """
-    sentences = nltk.sent_tokenize(text)
+    sentences = nltk.sent_tokenize(text) if text.strip() else []
     if not sentences:
         return []
 
@@ -90,9 +93,43 @@ def _sentence_aware_split(
 
     for sentence in sentences:
         sentence_words = sentence.split()
+        if not sentence_words:
+            continue
 
-        # If adding this sentence exceeds the limit and we have content,
-        # finalise the current chunk (unless this is a continuation)
+        # If a single sentence exceeds max_words, handle with sliding window
+        if len(sentence_words) > max_words:
+            if current_words:
+                chunks.append(
+                    Chunk(
+                        chunk_id=str(uuid.uuid4()),
+                        doc_id=doc_id,
+                        text=" ".join(current_words),
+                        page=page,
+                        heading=heading,
+                    )
+                )
+                chunk_idx += 1
+                current_words = []
+
+            step = max_words - overlap_words if max_words > overlap_words else max_words
+            for i in range(0, len(sentence_words), step):
+                chunk_slice = sentence_words[i : i + max_words]
+                if not chunk_slice:
+                    continue
+                chunks.append(
+                    Chunk(
+                        chunk_id=str(uuid.uuid4()),
+                        doc_id=doc_id,
+                        text=" ".join(chunk_slice),
+                        page=page,
+                        heading=heading,
+                    )
+                )
+                chunk_idx += 1
+                if i + max_words >= len(sentence_words):
+                    break
+            continue
+
         if (
             current_words
             and len(current_words) + len(sentence_words) > max_words
@@ -110,7 +147,6 @@ def _sentence_aware_split(
             )
             chunk_idx += 1
 
-            # Overlap: keep the last N words for context continuity
             if overlap_words > 0 and len(current_words) > overlap_words:
                 current_words = current_words[-overlap_words:]
             else:
@@ -118,7 +154,6 @@ def _sentence_aware_split(
 
         current_words.extend(sentence_words)
 
-    # Flush remaining words
     if current_words:
         chunk_text = " ".join(current_words)
         chunks.append(
@@ -134,49 +169,64 @@ def _sentence_aware_split(
     return chunks
 
 
+def sliding_window_fallback(
+    text: str,
+    doc_id: str,
+    page: int = None,
+    heading: str = None,
+    max_words: int = CHUNK_MAX_WORDS,
+    overlap: int = CHUNK_OVERLAP_WORDS,
+) -> List[Chunk]:
+    """Helper wrapper around sentence-aware chunking for sliding window splitting."""
+    return _sentence_aware_split(
+        text=text,
+        doc_id=doc_id,
+        page=page,
+        heading=heading,
+        max_words=max_words,
+        overlap_words=overlap,
+    )
+
+
 async def chunk_document(request: ChunkRequest) -> ChunkResponse:
     """
-    Splits document sections into clause-level chunks using NLTK sentence
-    boundaries and a configurable sliding window for overly long sections.
-
-    Each section from the extractor is treated as an atomic unit — no
-    redundant re-splitting on double-newlines.
+    Splits document sections into clause-level chunks using double-newline paragraph
+    breaks and NLTK sentence boundaries.
     """
     all_chunks: List[Chunk] = []
     chunk_index = 0
 
     for section in request.sections:
-        text = section.text.strip()
-        if not text:
+        raw_text = section.text.strip()
+        if not raw_text:
             continue
 
-        word_count = len(text.split())
-
-        if word_count <= CHUNK_MAX_WORDS:
-            # Section fits in a single chunk — keep it whole
-            all_chunks.append(
-                Chunk(
-                    chunk_id=str(uuid.uuid4()),
+        blocks = [b.strip() for b in re.split(r"\n\s*\n", raw_text) if b.strip()]
+        for block in blocks:
+            word_count = len(block.split())
+            if word_count <= CHUNK_MAX_WORDS:
+                all_chunks.append(
+                    Chunk(
+                        chunk_id=str(uuid.uuid4()),
+                        doc_id=request.doc_id,
+                        text=block,
+                        page=section.page,
+                        heading=section.heading,
+                    )
+                )
+                chunk_index += 1
+            else:
+                sub_chunks = _sentence_aware_split(
+                    text=block,
                     doc_id=request.doc_id,
-                    text=text,
                     page=section.page,
                     heading=section.heading,
+                    max_words=CHUNK_MAX_WORDS,
+                    overlap_words=CHUNK_OVERLAP_WORDS,
+                    start_index=chunk_index,
                 )
-            )
-            chunk_index += 1
-        else:
-            # Section is too long — split at sentence boundaries
-            sub_chunks = _sentence_aware_split(
-                text=text,
-                doc_id=request.doc_id,
-                page=section.page,
-                heading=section.heading,
-                max_words=CHUNK_MAX_WORDS,
-                overlap_words=CHUNK_OVERLAP_WORDS,
-                start_index=chunk_index,
-            )
-            all_chunks.extend(sub_chunks)
-            chunk_index += len(sub_chunks)
+                all_chunks.extend(sub_chunks)
+                chunk_index += len(sub_chunks)
 
     logger.info(
         "Chunked document %s: %d sections → %d chunks (max_words=%d, overlap=%d)",
@@ -188,3 +238,4 @@ async def chunk_document(request: ChunkRequest) -> ChunkResponse:
     )
 
     return ChunkResponse(doc_id=request.doc_id, chunks=all_chunks)
+

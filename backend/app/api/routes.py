@@ -98,7 +98,79 @@ def _persist_obligations(db: Session, doc_id: str, obligations: List[dict]) -> L
     return saved
 
 
-def _normalize_report(report_json: dict, obligations: Optional[List[ObligationModel]] = None) -> dict:
+def _build_dashboard_stats(
+    flags: List[dict],
+    priorities: List[dict],
+    obligations: List[dict],
+    playbook: List[dict],
+    *,
+    section_count: int = 0,
+    chunk_count: int = 0,
+) -> dict:
+    severity_summary = _severity_summary(flags)
+    category_map: Dict[str, Dict[str, int]] = {}
+    confidences: List[float] = []
+
+    for flag in flags or []:
+        category = (flag.get("category") or "uncategorized").strip() or "uncategorized"
+        severity = flag.get("severity") or "low"
+        bucket = category_map.setdefault(category, {"count": 0, "high": 0, "medium": 0, "low": 0})
+        bucket["count"] += 1
+        if severity in ("high", "medium", "low"):
+            bucket[severity] += 1
+        confidence = flag.get("confidence")
+        if isinstance(confidence, (int, float)):
+            confidences.append(float(confidence))
+
+    obligation_status = {
+        "unconfirmed": 0,
+        "confirmed": 0,
+        "completed": 0,
+        "dismissed": 0,
+    }
+    party_map: Dict[str, int] = {}
+    for item in obligations or []:
+        status = item.get("status") or "unconfirmed"
+        if status in obligation_status:
+            obligation_status[status] += 1
+        party = (item.get("party") or "unknown party").strip() or "unknown party"
+        party_map[party] = party_map.get(party, 0) + 1
+
+    avg_confidence = None
+    if confidences:
+        avg = sum(confidences) / len(confidences)
+        # Normalize 0-1 scores to percent for the dashboard
+        avg_confidence = round(avg * 100 if avg <= 1 else avg, 1)
+
+    return {
+        "flag_count": len(flags or []),
+        "priority_count": len(priorities or []),
+        "obligation_count": len(obligations or []),
+        "playbook_count": len(playbook or []),
+        "section_count": section_count or 0,
+        "chunk_count": chunk_count or 0,
+        "avg_confidence": avg_confidence,
+        "severity_summary": severity_summary,
+        "obligation_status": obligation_status,
+        "category_breakdown": [
+            {"category": category, **counts}
+            for category, counts in sorted(
+                category_map.items(),
+                key=lambda item: (-item[1]["count"], item[0]),
+            )
+        ],
+        "parties": [
+            {"party": party, "count": count}
+            for party, count in sorted(party_map.items(), key=lambda item: (-item[1], item[0]))
+        ],
+    }
+
+
+def _normalize_report(
+    report_json: dict,
+    obligations: Optional[List[ObligationModel]] = None,
+    document: Optional[DocumentModel] = None,
+) -> dict:
     data = dict(report_json or {})
     data.setdefault("flags", [])
     data.setdefault("executive_summary", "")
@@ -131,6 +203,23 @@ def _normalize_report(report_json: dict, obligations: Optional[List[ObligationMo
         ]
     else:
         data.setdefault("obligations", [])
+
+    if document is not None:
+        data["filename"] = document.filename
+        data["content_type"] = document.content_type
+        data["section_count"] = document.section_count or 0
+        data["chunk_count"] = document.chunk_count or 0
+        data["created_at"] = document.created_at
+        data["updated_at"] = document.updated_at
+
+    data["dashboard"] = _build_dashboard_stats(
+        data.get("flags") or [],
+        data.get("review_priorities") or [],
+        data.get("obligations") or [],
+        data.get("negotiation_playbook") or [],
+        section_count=data.get("section_count") or 0,
+        chunk_count=data.get("chunk_count") or 0,
+    )
     return data
 
 
@@ -205,7 +294,7 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
             document.flag_count,
             document.overall_risk,
         )
-        return report_json
+        return _normalize_report(report_json, None, document)
     except Exception as e:
         logger.error("Upload failed for %s: %s", doc_id, e, exc_info=True)
         document.status = "failed"
@@ -230,7 +319,7 @@ def get_document(doc_id: str, db: Session = Depends(get_db)):
     summary = _document_summary(doc, report_json)
     report = None
     if report_json:
-        report = StructuredReport(**_normalize_report(report_json, doc.obligations))
+        report = StructuredReport(**_normalize_report(report_json, doc.obligations, doc))
     return DocumentDetail(**summary.model_dump(), report=report)
 
 
@@ -253,6 +342,7 @@ def get_report(doc_id: str, db: Session = Depends(get_db)):
     report_record = db.query(ReportModel).filter(ReportModel.doc_id == doc_id).first()
     if not report_record:
         raise HTTPException(status_code=404, detail="Report not found")
+    document = db.query(DocumentModel).filter(DocumentModel.doc_id == doc_id).first()
     obligations = (
         db.query(ObligationModel)
         .filter(ObligationModel.doc_id == doc_id)
@@ -279,13 +369,12 @@ def get_report(doc_id: str, db: Session = Depends(get_db)):
             )
         report_record.report_json = payload
         report_record.updated_at = datetime.utcnow()
-        doc = db.query(DocumentModel).filter(DocumentModel.doc_id == doc_id).first()
-        if doc:
-            doc.overall_risk = payload.get("overall_risk")
-            doc.flag_count = len(payload.get("flags") or [])
-            doc.updated_at = datetime.utcnow()
+        if document:
+            document.overall_risk = payload.get("overall_risk")
+            document.flag_count = len(payload.get("flags") or [])
+            document.updated_at = datetime.utcnow()
         db.commit()
-    return _normalize_report(payload, obligations)
+    return _normalize_report(payload, obligations, document)
 
 
 @router.get("/chat/{doc_id}", response_model=List[ChatMessageOut])
@@ -310,6 +399,16 @@ def get_chat(doc_id: str, db: Session = Depends(get_db)):
         )
         for m in messages
     ]
+
+
+@router.delete("/chat/{doc_id}")
+def delete_chat(doc_id: str, db: Session = Depends(get_db)):
+    doc = db.query(DocumentModel).filter(DocumentModel.doc_id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    deleted_count = db.query(ChatMessageModel).filter(ChatMessageModel.doc_id == doc_id).delete(synchronize_session=False)
+    db.commit()
+    return {"doc_id": doc_id, "deleted_count": deleted_count}
 
 
 @router.post("/ask", response_model=AskResponse)
@@ -382,7 +481,7 @@ def export_report(doc_id: str, format: str = Query("pdf", pattern="^(pdf|docx)$"
         .order_by(ObligationModel.id.asc())
         .all()
     )
-    report = _normalize_report(report_record.report_json, obligations)
+    report = _normalize_report(report_record.report_json, obligations, doc)
 
     if format == "pdf":
         payload = build_pdf(report, doc.filename)

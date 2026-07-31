@@ -113,8 +113,8 @@ def is_heading(text: str) -> bool:
     if re.match(r"^\d+(\.\d+)*\.?\s+\S", text):
         return True
 
-    # Article/Section markers
-    if re.match(r"^(article|section|clause|schedule|exhibit|appendix|annex)\s+\d+", text, re.IGNORECASE):
+    # Article/Section/Heading markers
+    if re.match(r"^(heading|article|section|clause|schedule|exhibit|appendix|annex)\s+\d+", text, re.IGNORECASE):
         return True
 
     # ALL-CAPS title (at least 2 words, under 80 chars, mostly uppercase)
