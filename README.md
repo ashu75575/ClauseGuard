@@ -9,6 +9,14 @@ pipeline.
 > ClauseGuard provides AI-assisted document review, not legal advice. Always
 > verify generated findings against the cited source language.
 
+<img width="1999" height="1104" alt="image6" src="https://github.com/user-attachments/assets/444eec04-038b-46e9-989c-5c025f610e87" />
+<img width="1999" height="1104" alt="image12" src="https://github.com/user-attachments/assets/c8c358f6-d615-4317-811c-92a371131286" />
+<img width="1999" height="1104" alt="image11" src="https://github.com/user-attachments/assets/411ea4e2-a88b-43f0-a12a-2187bdeecba6" />
+<img width="1999" height="1104" alt="image10" src="https://github.com/user-attachments/assets/f3525041-4f77-4ed0-9ed0-14a9bc7e5d12" />
+<img width="1999" height="1104" alt="image9" src="https://github.com/user-attachments/assets/65320ed5-b77e-441d-94cb-ad9008828b70" />
+<img width="1999" height="1104" alt="image8" src="https://github.com/user-attachments/assets/35ad397e-7a85-4ad8-ab22-08eb4e323ab1" />
+
+
 ## Features
 
 ### Document ingestion
